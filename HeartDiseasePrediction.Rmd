@@ -1,0 +1,64 @@
+---
+title: "Heart Disease Prediction Model"
+author: "Tan Hong Yi 32061412"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+    theme: flatly
+    highlight: haddock
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Import Libraries
+
+```{r echo=FALSE}
+library(tidyverse)
+library(dplyr)
+```
+
+## Exploratory data analysis
+
+### Dataset Overview
+
+#### Basic info
+
+```{r}
+framingham <- read.csv("framingham.csv")
+```
+
+```{r}
+# take a peek at the dataset
+head(framingham)
+```
+
+```{r}
+# show columns
+colnames(framingham)
+```
+
+#### Summary for continuous data columns
+
+```{r}
+framingham %>% 
+  select(age, cigsPerDay, totChol, sysBP, diaBP, BMI, heartRate, glucose) %>%
+  summary()
+```
+
+#### Summary for categorical data
+
+'education' column has 4 categories(1,2,3,4) while other columns have 2 categories(0,1)
+
+```{r}
+framingham %>% 
+  select(-age,-cigsPerDay,-totChol, -sysBP, -diaBP, -BMI, -heartRate, -glucose) %>%
+  pivot_longer(everything()) %>%
+  group_by(across(everything())) %>%
+  summarise(N=n()) %>%
+  pivot_wider(names_from = name,values_from=N,values_fill=0)
+```

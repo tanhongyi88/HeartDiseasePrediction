@@ -20,21 +20,23 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r echo=FALSE}
 library(tidyverse)
 library(dplyr)
+library(visdat)
+library(rpart)
+library(rpart.plot)
 ```
 
-## Exploratory data analysis
+## Dataset Overview
 
-### Dataset Overview
-
-#### Basic info
+### Basic info
 
 ```{r}
+# read dataset and define numerical columns and categorical columns
 framingham <- read.csv("framingham.csv")
 ```
 
 ```{r}
 # take a peek at the dataset
-head(framingham)
+framingham
 ```
 
 ```{r}
@@ -42,23 +44,160 @@ head(framingham)
 colnames(framingham)
 ```
 
-#### Summary for continuous data columns
+### Summary for continuous data columns
 
 ```{r}
-framingham %>% 
-  select(age, cigsPerDay, totChol, sysBP, diaBP, BMI, heartRate, glucose) %>%
+# define categorical and numerical columns
+numerical_columns <- c('age', 'cigsPerDay', 'totChol', 'sysBP', 'diaBP', 'BMI', 'heartRate', 'glucose')
+categorical_columns <- c('male', 'education', 'currentSmoker', 'BPMeds', 'prevalentStroke', 'prevalentHyp', 'diabetes')
+label_column <- c('TenYearCHD')
+```
+
+```{r}
+framingham[numerical_columns] %>% 
   summary()
 ```
 
-#### Summary for categorical data
+### Summary for categorical data columns
 
-'education' column has 4 categories(1,2,3,4) while other columns have 2 categories(0,1)
+'education' column has 4 categories(1,2,3,4) while other columns have 2 categories(0,1), and values in NA category indicates missing data.
 
 ```{r}
-framingham %>% 
-  select(-age,-cigsPerDay,-totChol, -sysBP, -diaBP, -BMI, -heartRate, -glucose) %>%
+framingham[c(categorical_columns, label_column)] %>% 
   pivot_longer(everything()) %>%
   group_by(across(everything())) %>%
   summarise(N=n()) %>%
-  pivot_wider(names_from = name,values_from=N,values_fill=0)
+  pivot_wider(names_from = name,values_from=N)
+```
+
+## Exploratory data analysis
+
+### Univariate Analysis
+
+#### Continuous columns
+
+```{r fig.height=8, fig.width=12}
+framingham[numerical_columns] %>%
+  gather(Variable, Value) %>%
+  ggplot(aes(x=Value)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="white")+
+  geom_density(alpha=.2, fill="#FF6666") +
+  geom_vline(aes(xintercept=mean(Value)), color="blue", linetype="dashed", size=2)+
+  labs(title="Distribution of Continuous Variables",x="Value", y = "Density")+
+  facet_wrap(~Variable, scales="free")
+```
+
+#### Categorical columns
+
+```{r}
+framingham[c(categorical_columns, label_column)] %>% 
+  pivot_longer(everything()) %>%
+  group_by(across(everything())) %>%
+  summarise(N=n(), percentage=(n()/nrow(framingham))*100) %>%
+  ggplot(aes(x=value, y=percentage, fill=value)) +
+  geom_bar(stat="identity") +
+  facet_wrap(~ name, ncol=3, scales="free") +
+  labs(title="Distribution of Categorical Variables",x="Category", y = "Percentage(%)")+
+  coord_flip()
+```
+
+## Data Pre-processing
+
+### Missing value
+
+In Basic Info under Dataset Overview section, missing data is noticed. Let's see whats missing and how many of them.
+
+```{r}
+framingham %>%
+  vis_miss()+
+  ggplot2::theme(legend.position = "bottom")
+```
+
+```{r}
+colSums(is.na(framingham))
+```
+
+### Missing value treatment
+
+```{r}
+# remove rows with missing values
+filtered_framingham <- framingham %>% 
+  filter(if_all(everything(), Negate(is.na)))
+
+# number of rows after filter
+nrow(filtered_framingham)
+```
+
+### Model fitting
+
+```{r}
+filtered_framingham_fit <- rpart(TenYearCHD ~ ., data = filtered_framingham)
+
+var_importance <- 
+  tibble(variable = names(filtered_framingham_fit$variable.importance), importance = filtered_framingham_fit$variable.importance)
+```
+
+```{r fit-var-importance, echo=TRUE}
+var_importance %>% 
+  mutate(variable = fct_reorder(variable, importance)) %>% 
+  ggplot(aes(x = importance, y = variable)) +
+  geom_segment(aes(x = 0, y = variable, xend = importance, yend = variable)) +
+  geom_point(colour = "red")
+```
+
+```{r}
+filtered_framingham_fit_gini <- rpart(TenYearCHD ~ ., data = filtered_framingham, parms = list(split = "gini"))
+
+printcp(filtered_framingham_fit_gini)
+rpart.plot(filtered_framingham_fit_gini)
+```
+
+```{r}
+
+pred_gini <- predict(filtered_framingham_fit_gini, filtered_framingham, type = "class")
+table(filtered_framingham$TenYearCHD, pred_gini)
+```
+
+```{r echo=FALSE}
+# install.packages("caTools")       # For sampling the dataset 
+# install.packages("randomForest")
+library(caTools) 
+library(randomForest) 
+filtered_framingham$TenYearCHD <- factor(filtered_framingham$TenYearCHD)
+filtered_framingham <- filtered_framingham %>%
+  select(TenYearCHD, everything())
+
+split <- sample.split(filtered_framingham[c(categorical_columns, numerical_columns)], SplitRatio = 0.8) 
+  
+train <- subset(filtered_framingham, split == "TRUE") 
+test <- subset(filtered_framingham, split == "FALSE") 
+
+set.seed(120)  # Setting seed 
+
+```
+
+```{r}
+
+classifier_RF = randomForest(x = train[-1],
+                             y = train$TenYearCHD,
+                             ntree = 500)
+y_pred = predict(classifier_RF, newdata = test[-1]) 
+
+
+plot(classifier_RF) 
+  
+# Importance plot 
+importance(classifier_RF) 
+  
+# Variable importance plot 
+varImpPlot(classifier_RF) 
+```
+
+```{r}
+classifier_RF
+```
+
+```{r}
+confusion_mtx = table(test[,1], y_pred) 
+confusion_mtx 
 ```

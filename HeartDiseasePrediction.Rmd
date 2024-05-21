@@ -101,6 +101,41 @@ framingham[c(categorical_columns, label_column)] %>%
   coord_flip()
 ```
 
+### Bivariate Analysis
+
+#### Continuous columns
+
+```{r fig.height=8, fig.width=12}
+framingham[c(numerical_columns, label_column)] %>% 
+  pivot_longer(c(numerical_columns)) %>%
+  ggplot(aes(x=TenYearCHD, y=value, group = TenYearCHD)) +
+  geom_boxplot() +
+  facet_wrap(~ name,scales="free")+
+  labs(title="Bivariate Analysis of Numerical Variables",x="No CHD Risk and With RIsk", y = "Value")
+```
+
+#### Categorical columns
+
+```{r}
+framingham %>%
+  summarise(across(everything(), list(count = n())))
+```
+
+```{r fig.height=8, fig.width=11}
+categorical_without_education = c('male', 'currentSmoker', 'BPMeds', 'prevalentStroke', 'prevalentHyp', 'diabetes')
+
+framingham[c(categorical_without_education, label_column)] %>% 
+  pivot_longer(c(categorical_without_education)) %>%
+  group_by(across(everything())) %>%
+  summarise(count=n()) %>%
+  ungroup() %>%
+  ggplot(aes(x=as.factor(value), y=count, fill=as.factor(TenYearCHD))) +
+  geom_bar(stat="identity", position="stack") +
+  facet_wrap(~ name,scales="free")+
+  labs(title="Bivariate Analysis of Categorical Variables",x="Category", y = "Count", fill="CHD Risk") + 
+  scale_fill_discrete(labels = c("No", "Yes"))
+```
+
 ## Data Pre-processing
 
 ### Missing value

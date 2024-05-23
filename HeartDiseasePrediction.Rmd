@@ -23,11 +23,15 @@ library(dplyr)
 library(visdat)
 library(rpart)
 library(rpart.plot)
+library(caTools) 
+library(randomForest) 
 ```
 
 ## Dataset Overview
 
 ### Basic info
+
+This is to take a look at the exact data in the dataset, and what columns or dimensions there are
 
 ```{r}
 # read dataset and define numerical columns and categorical columns
@@ -44,7 +48,13 @@ framingham
 colnames(framingham)
 ```
 
+-   cigsPerDay = cigarettes per day
+
+-   
+
 ### Summary for continuous data columns
+
+This is to show basic statistical information such as min, max, 1st and 3rd quartiles, median and mean on numerical data columns
 
 ```{r}
 # define categorical and numerical columns
@@ -60,6 +70,8 @@ framingham[numerical_columns] %>%
 
 ### Summary for categorical data columns
 
+This is to show count/number of occurences in each category of each categorical column
+
 'education' column has 4 categories(1,2,3,4) while other columns have 2 categories(0,1), and values in NA category indicates missing data.
 
 ```{r}
@@ -74,20 +86,26 @@ framingham[c(categorical_columns, label_column)] %>%
 
 ### Univariate Analysis
 
+This is to explore on one feature(column) at a time to understand more of its distribution and range
+
 #### Continuous columns
+
+Histogram is used understand central tendency, spread and shape of the data distribution.
 
 ```{r fig.height=8, fig.width=12}
 framingham[numerical_columns] %>%
   gather(Variable, Value) %>%
   ggplot(aes(x=Value)) + 
   geom_histogram(aes(y=..density..), colour="black", fill="white")+
-  geom_density(alpha=.2, fill="#FF6666") +
+  geom_density(alpha=.2, fill="#FFC0CB") +
   geom_vline(aes(xintercept=mean(Value)), color="blue", linetype="dashed", size=2)+
   labs(title="Distribution of Continuous Variables",x="Value", y = "Density")+
   facet_wrap(~Variable, scales="free")
 ```
 
 #### Categorical columns
+
+Bar plots are used to visualise frequency of each category within a column
 
 ```{r}
 framingham[c(categorical_columns, label_column)] %>% 
@@ -103,16 +121,29 @@ framingham[c(categorical_columns, label_column)] %>%
 
 ### Bivariate Analysis
 
+This is to explore relationship between each feature(column) with the responding variable(CHD risk). This helps us to understand importantance and influence of each feature on the responding variable.
+
 #### Continuous columns
 
 ```{r fig.height=8, fig.width=12}
 framingham[c(numerical_columns, label_column)] %>% 
   pivot_longer(c(numerical_columns)) %>%
-  ggplot(aes(x=TenYearCHD, y=value, group = TenYearCHD)) +
+  ggplot(aes(x=TenYearCHD, y=value, group = TenYearCHD, fill=as.factor(TenYearCHD))) +
   geom_boxplot() +
   facet_wrap(~ name,scales="free")+
-  labs(title="Bivariate Analysis of Numerical Variables",x="No CHD Risk and With RIsk", y = "Value")
+  labs(title="Bivariate Analysis of Numerical Variables",x="CHD Risk", y = "Value", fill="CHD Risk") + 
+  scale_fill_manual(labels = c("No", "Yes"),values=c("orange", "lightblue"))
 ```
+
+#### Inferences
+
+-   There are many outliers in BMI, diastolic blood pressure, glucose, heart rate, systolic blood pressure and total cholesterol, this means we need to be careful on choosing machine learning model because some of them are susceptible to outliers and noises or treat the outliers before feeding them into the machine learning model
+
+-   Obvious differences are noticed at age, diaBP, sysBP, totChol(maybe not), BMI of people who have risk of CHD and those who do not. It is noticed people with CHD risk have higher systolic and diastolic blood pressure, BMI, total cholesterol and older.
+
+-   Others seem similar
+
+-   This graph can contribute to the feature selection when we need to consider which feature columns to feed into machine learning model.
 
 #### Categorical columns
 
@@ -127,9 +158,17 @@ framingham[c(categorical_without_education, label_column)] %>%
   ggplot(aes(x=as.factor(value), y=count, fill=as.factor(TenYearCHD))) +
   geom_bar(stat="identity", position="stack") +
   facet_wrap(~ name,scales="free")+
-  labs(title="Bivariate Analysis of Categorical Variables",x="Category", y = "Count", fill="CHD Risk") + 
-  scale_fill_discrete(labels = c("No", "Yes"))
+  labs(title="Bivariate Analysis of Categorical Variables",x="Category(False or True)", y = "Count", fill="CHD Risk") +
+  scale_fill_manual(labels = c("No", "Yes"), values=c("orange", "blue"))
 ```
+
+#### Inferences
+
+-   The dataset are made up of mostly people who have blood pressure medicine, almost equal smoker and non smokers, mostly diabetic, non-male more than male and mostly has hypertension but not stroke
+
+-   Even though total male is lower than total non-male, the male who has CHD risk is still higher than the the non-male who has CHD risk.
+
+-   the percentage of people with hypertension having CHD risk is higher compared to people without hypertension
 
 ## Data Pre-processing
 
@@ -158,17 +197,20 @@ filtered_framingham <- framingham %>%
 nrow(filtered_framingham)
 ```
 
-### Model fitting
+## Model fitting
 
 ```{r echo=FALSE}
+# install the package if have not installed the packages
 # install.packages("caTools")       # For sampling the dataset 
 # install.packages("randomForest")
-library(caTools) 
-library(randomForest) 
+
+# treat target as discrete values
 filtered_framingham$TenYearCHD <- factor(filtered_framingham$TenYearCHD)
+# move target to fisrt column
 filtered_framingham <- filtered_framingham %>%
   select(TenYearCHD, everything())
 
+# split into train and train set with 0.8 ratio
 split <- sample.split(filtered_framingham[c(categorical_columns, numerical_columns)], SplitRatio = 0.8) 
   
 train <- subset(filtered_framingham, split == "TRUE") 
@@ -180,31 +222,41 @@ set.seed(120)  # Setting seed
 
 ```{r}
 
-classifier_RF = randomForest(x = train[-1],
+# fitting 
+random_forest_classifier = randomForest(x = train[-1],
                              y = train$TenYearCHD,
-                             ntree = 500)
-y_pred = predict(classifier_RF, newdata = test[-1]) 
+                             ntree = 400)
+# do prediction on testing set
+y_pred = predict(random_forest_classifier, newdata = test[-1]) 
 
 
-plot(classifier_RF) 
+# Model plotting 
+plot(random_forest_classifier) 
   
 # Importance plot 
-importance(classifier_RF) 
+importance(random_forest_classifier) 
   
 # Variable importance plot 
-varImpPlot(classifier_RF) 
+varImpPlot(random_forest_classifier) 
+```
+
+-   We can see that the error rate lowers and stabilizes when number of trees increases
+
+-   Top 7 most important features are systolic blood pressure, BMI, total cholesterol, glucose, age, diastolic blood pressure and heart rate
+
+```{r}
+# to see random forest model performance and error rate
+random_forest_classifier
 ```
 
 ```{r}
-classifier_RF
-```
-
-```{r}
+# show confusion matrix
 confusion_mtx = table(test[,1], y_pred) 
 confusion_mtx 
 ```
 
 ```{r}
+# calculate accuracy
 accuracy = (confusion_mtx[1] + confusion_mtx[4])*100 /sum(confusion_mtx)
 accuracy
 ```
